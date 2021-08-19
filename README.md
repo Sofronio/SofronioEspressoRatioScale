@@ -15,8 +15,13 @@ Yet another ratio espresso scale
 * Show time stamp of the first coffee drop.
 * Ratio display.
 * Auto stop the timer when extraction compeleted.
+
+* "咖啡录入" Click to start/stop/reset timer, long press to switch to pure scale.
+* "+" Plus 0.1g coffee powder weight. Long press will increase faster.
+* "-" Minus 0.1g coffee powder weight. Long press will decrease faster.
+* "清零" Tare and stop/reset timer.
 ### Setting
-During power on, press the following buttons will...
+During power on, press and hold the following buttons will...
 * "咖啡录入" Set scale sample number. 1 for quick respond, and 128 for stability.
 * "+" Set portafilter weight.
 * "-" Show version info.
