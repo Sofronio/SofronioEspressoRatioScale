@@ -26,6 +26,13 @@ During power on, press and hold the following buttons will...
 * "+" Set portafilter weight.
 * "-" Show version info.
 * "清零" Scale recalibration, 100g weight is needed.
+
+# Library needed:
+AceButton https://github.com/bxparks/AceButton <br />
+Stopwatch_RT https://github.com/RobTillaart/Stopwatch_RT <br />
+HX711_ADC https://github.com/olkal/HX711_ADC <br />
+u8g2 https://github.com/olikraus/u8g2 <br />
+
 # How to upload HEX file
 Use OpenJumper™ Serial Assistant, link as below.<br />
 https://www.cnblogs.com/wind-under-the-wing/p/14686625.html <br />
