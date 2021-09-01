@@ -402,6 +402,8 @@ void buttonTare_Clicked() {
 }
 
 void setPortaFilterWeight(int input) {
+  float portaFilterWeight = 0;
+  scale.setSamplesInUse(16);
   while (boolSetPortaFilterWeight) {
     buttonTare.check();
     buttonSet.check();
@@ -412,11 +414,11 @@ void setPortaFilterWeight(int input) {
         if (scale.update()) newDataReady = true;
 
         if (newDataReady) {
-          rawWeight = scale.getData();
+          portaFilterWeight = scale.getData();
           newDataReady = 0;
         }
         char c_temp[7];
-        PORTAFILTER_WEIGHT = rawWeight;
+        PORTAFILTER_WEIGHT = portaFilterWeight;
         dtostrf(PORTAFILTER_WEIGHT, 7, decimalPrecision, c_temp);
         refreshOLED("Set PortaFilter", "Weight", trim(c_temp));
         break;
@@ -431,6 +433,7 @@ void setPortaFilterWeight(int input) {
         refreshOLED("Saved");
         delay(1000);
         boolSetPortaFilterWeight = false;
+        resetFunc();
         break;
     }
   }
