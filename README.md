@@ -1,5 +1,17 @@
 # SofronioEspressoRatioScale
 Yet another ratio espresso scale
+## Version:
+### v1.2
+* FIX Sample can't be changed.
+* ADD During power up, press and hold "+" to set portafilter weight.
+* ADD In pure scale mode, press "+" to show weight without portafilter.
+* ADD Change vRef to match your MCU.
+### v1.1
+* ADD Battery icon.
+### v1.0
+* ADD During power up, press and hold TARE to calibrate.
+* ADD During power up, press and hold INPUT to set sample.
+* ADD During power up, press and hold "-" to show info.
 ## Features:
 * Pure scale 
 * Espresso scale
