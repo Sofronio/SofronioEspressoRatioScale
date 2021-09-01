@@ -4,9 +4,7 @@
   2021-08-02 新增开机修改sample，显示版本信息，手柄录入功能
   2021-08-07 v1.1 新增手柄录入功能
   2021-08-15 v1.1 去掉手柄录入（因为双头手柄含水量不一定），修复进入意式模式时未恢复参数，新增电量检测
-  2021-08-15 v1.2 重新加入手柄录入功能：开机按+进入手柄录入功能，单击录入即录入手柄（或是气动机冲煮粉碗）
-                  称重模式下按+即可减去手柄重量
-
+  2021-09-01 v1.2 重新加入手柄录入 修复sample不可更改bug
 */
 //#include "stdlib.h"
 #include <Arduino.h>
@@ -14,12 +12,6 @@
 #if defined(ESP8266)|| defined(ESP32) || defined(AVR)
 #include <EEPROM.h>
 #endif
-//#if defined(ESP8266)
-//#include <ESP8266WiFi.h>
-//#endif
-//#if defined(ESP32)
-//#include <WiFi.h>
-//#endif
 #include <HX711_ADC.h>
 #include <AceButton.h>
 using namespace ace_button;
@@ -27,48 +19,24 @@ using namespace ace_button;
 
 //针脚定义
 #if defined(AVR)
-static const int OLED_SCL = 6;
-static const int OLED_SDA = 7;
-static const int OLED_RST = 8;
-static const int OLED_DC = 9;
-static const int OLED_CS = 10;
+#define BUZZER        12
+#define OLED_SCL      6
+#define OLED_SDA      7
+#define OLED_RST      8
+#define OLED_DC       9
+#define OLED_CS       10
 
-static const int BUTTON_SET = 2;
-static const int BUTTON_PLUS = 3;
-static const int BUTTON_MINUS = 4;
-static const int BUTTON_TARE = 5;
+#define BUTTON_SET    2
+#define BUTTON_PLUS   3
+#define BUTTON_MINUS  4
+#define BUTTON_TARE   5
 
 #define HX711_SDA     A2
 #define HX711_SCL     A3
 #define BATTERY_LEVEL A0
-#define BUZZER 12
+#define USB_LEVEL     A1
 #endif
-//
-//#if defined(ESP8266)
-//static const uint8_t DD0   = 16;
-//static const uint8_t DD1   = 5;
-//static const uint8_t DD2   = 4;
-//static const uint8_t DD3   = 0;
-//static const uint8_t DD4   = 2;
-//static const uint8_t DD5   = 14;
-//static const uint8_t DD6   = 12;
-//static const uint8_t DD7   = 13;
-//static const uint8_t DD8   = 15;
-//static const uint8_t DD9   = 3;
-//static const uint8_t DD10  = 1;
-////const int OLED_SCL = D1;
-////const int OLED_SDA = D2;
-//
-//const int BUTTON_SET = DD8;
-//const int BUTTON_PLUS = DD7;
-//const int BUTTON_MINUS = DD6;
-//const int BUTTON_TARE = DD5;
-//
-//const int HX711_SDA = DD3;
-//const int HX711_SCL = DD4;
-//#endif
 
-//const float calibrationValue = 968.64;
 void(* resetFunc) (void) = 0;//重启函数
 
 //电子秤校准参数
@@ -98,23 +66,7 @@ float GRIND_COFFEE_WEIGHT = 0.0; //咖啡粉重量
 float PORTAFILTER_WEIGHT = 0.0; //咖啡手柄重量
 
 char coffee[10];            //咖啡重量
-int decimalPrecision = 1;
-/*
-  按键排列：
-    2         3     4     5
-    On/Off    Mode  PCS   Tare
-  普通模式：
-    2 短按 记录并切换模式
-    3 短按 切换精度 长按 校准
-    4 无
-    5 短按 清零    长按 重启
-  意式咖啡：
-    2 短按 时钟三态 长按 切换模式
-    3 短按 加0.1g  长按 连续加0.1g
-    4 短按 减0.1g  长按 连续减0.1g
-    5 短按 清零     长按  重启
-
-*/
+int decimalPrecision = 1;   //小数精度 0.1g/0.01g
 
 const int Margin_Top = 0;
 const int Margin_Bottom = 0;
@@ -152,27 +104,6 @@ char *sec2sec(int n) {
   return minsec;
 }
 
-//设置字体 https://github.com/olikraus/u8g2/wiki/fntlistall
-//#define FONT_S u8g2_font_trixel_square_tf
-//#define FONT_S u8g2_font_Pixellari_te
-//#define FONT_M u8g2_font_7x14B_tf //4行
-//#define FONT_M  u8g2_font_Untitled16PixelSansSerifBitmap_tr
-#define FONT_L u8g2_font_logisoso24_tn
-#define FONT_M u8g2_font_fub14_tr
-#define FONT_S u8g2_font_helvR12_tr
-#define FONT_BATTERY u8g2_font_battery19_tn
-char* c_battery = "0";//电池字符 0-5有显示
-char* c_batteryTemp = "0";
-unsigned long t_battery = 0; //电池充电循环判断打点
-int i_battery = 0; //电池充电循环变量
-int batteryRefreshTareInterval = 3 * 1000; //10秒刷新一次电量显示
-unsigned long t_batteryRefresh = 0; //电池充电循环判断打点
-float vRef = 4.72;
-
-int FONT_M_HEIGHT;
-int FONT_S_HEIGHT;
-int FONT_L_HEIGHT;
-int displayRotation = 0; //旋转方向 0 1 2 3 : 0 90 180 270
 //电子秤参数和计时点
 bool fixWeightZero = false;
 char wu[10];
@@ -221,8 +152,26 @@ AceButton buttonPlus(&config1);
 AceButton buttonMinus(&config1);
 AceButton buttonTare(&config1);
 
-
 //显示屏初始化 https://github.com/olikraus/u8g2/wiki/u8g2reference
+//设置字体 https://github.com/olikraus/u8g2/wiki/fntlistall
+#define FONT_L u8g2_font_logisoso24_tn
+#define FONT_M u8g2_font_fub14_tr
+#define FONT_S u8g2_font_helvR12_tr
+#define FONT_BATTERY u8g2_font_battery19_tn
+char* c_battery = "0";//电池字符 0-5有显示
+char* c_batteryTemp = "0";
+unsigned long t_battery = 0; //电池充电循环判断打点
+int i_battery = 0; //电池充电循环变量
+int batteryRefreshTareInterval = 3 * 1000; //10秒刷新一次电量显示
+unsigned long t_batteryRefresh = 0; //电池充电循环判断打点
+//float vRef = 4.72; //for arduino nano 328p (not old)
+//float vRef = 5.13; //for arduino pro mini
+
+int FONT_M_HEIGHT;
+int FONT_S_HEIGHT;
+int FONT_L_HEIGHT;
+int displayRotation = 0; //旋转方向 0 1 2 3 : 0 90 180 270
+
 #include <U8g2lib.h>
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -246,9 +195,6 @@ U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2(U8G2_R0, /* clock=*/ 13, /* data=*/ 11,
 #endif
 #endif
 
-#if defined(ESP8266)
-U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // Adafruit ESP8266/32u4/ARM Boards + FeatherWing OLED
-#endif
 
 //文本对齐 AC居中 AR右对齐 AL左对齐 T为要显示的文本
 #define LCDWidth  u8g2.getDisplayWidth()
@@ -300,6 +246,7 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
     case AceButton::kEventPressed:
       switch (pin) {
         case BUTTON_SET:
+          beep(1, 100);
           if (boolSetPortaFilterWeight)
             setPortaFilterWeight(1);
           else if (boolShowInfo)
@@ -308,9 +255,10 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
             buttonSet_Clicked();
           break;
         case BUTTON_PLUS:
+          beep(1, 100);
           if (!boolEspresso)
             boolPortaFilter = !boolPortaFilter;//是否减去咖啡手柄重量
-          else if (boolSetSample)
+          if (boolSetSample)
             sampleNumber++;
           else if (boolShowInfo)
             boolShowInfo = false;
@@ -318,6 +266,7 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
             buttonPlus_Clicked();
           break;
         case BUTTON_MINUS:
+          beep(1, 100);
           if (boolSetSample)
             sampleNumber--;
           else if (boolShowInfo)
@@ -326,6 +275,7 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
             buttonMinus_Clicked();
           break;
         case BUTTON_TARE:
+          beep(1, 100);
           if (boolSetSample)
             setSample(1);//保存sample设定
           else if (boolShowInfo)
@@ -340,12 +290,15 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
     case AceButton::kEventLongPressed:
       switch (pin) {
         case BUTTON_SET:
+          beep(1, 100);
           if (boolEspresso == true) //意式模式下 长按回归普通模式
             boolEspresso = !boolEspresso;
           break;
         case BUTTON_PLUS:
+          beep(1, 100);
           break;
         case BUTTON_TARE:
+          beep(1, 100);
           if (boolCalibration)
             resetFunc();
           break;
@@ -370,7 +323,7 @@ void buttonSet_Clicked() {
       if (stopWatch.elapsed() == 0)
       {
         //初始态 时钟开始
-        //ESP.wdtFeed();
+
         delay(500);
         stopWatch.start();
       }
@@ -388,17 +341,14 @@ void buttonSet_Clicked() {
   else {
     //普通录入 切换到意式模式
     if (rawWeight > 0) {
-      //initEspresso();
       if (rawWeight < 3)
         GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）
       else
         GRIND_COFFEE_WEIGHT = rawWeight - PORTAFILTER_WEIGHT;
       initEspresso();
       boolPortaFilter = false;
-      fixWeightZero = true;
       stopWatch.stop();
       stopWatch.reset();
-      scale.tareNoDelay();
     }
     boolEspresso = true;
   }
@@ -491,14 +441,13 @@ void setPortaFilterWeight(int input) {
 void setSample(int input) {
   static const char* sampleText[] = {"1", "2", "4", "8", "16", "32", "64", "128"};
   while (boolSetSample) {
-    //ESP.wdtFeed();
     buttonPlus.check();//左移动
     buttonTare.check();//右移动
     buttonMinus.check();//确认
     if (sampleNumber < 0)
-      sampleNumber = 0;
-    if (sampleNumber > 7)
       sampleNumber = 7;
+    if (sampleNumber > 7)
+      sampleNumber = 0;
     switch (input) {
       case 0: //左右移动
         refreshOLED("Set Sample", sampleText[sampleNumber]);
@@ -507,12 +456,12 @@ void setSample(int input) {
 #if defined(ESP8266)|| defined(ESP32)
         EEPROM.begin(512);
 #endif
-        EEPROM.put(sizeof(float), sampleNumber);
+        EEPROM.put(address_sampleNumber, sampleNumber);
 #if defined(ESP8266)|| defined(ESP32)
         EEPROM.commit();
 #endif
         refreshOLED("Saved", sampleText[sampleNumber]);
-        //ESP.wdtFeed();
+
         delay(1000);
         boolSetSample = false;
         break;
@@ -537,25 +486,25 @@ void cal() {
 
     boolean _resume = false;
     while (_resume == false) {
-      //ESP.wdtFeed();
+
       scale.update();
       buttonTare.check();
       if (button_cal_status == 2) {
         Serial.println(F("Hands off Taring...3"));
         refreshOLED("Hands off", "Tare in...3");
-        //ESP.wdtFeed();
+
         delay(1000);
         refreshOLED("Hands off", "Tare in...2");
-        //ESP.wdtFeed();
+
         delay(1000);
         refreshOLED("Hands off", "Tare in...1");
-        //ESP.wdtFeed();
+
         delay(1000);
         refreshOLED("Taring...");
         scale.tare();
         Serial.println(F("Tare done"));
         refreshOLED("Tare done");
-        //ESP.wdtFeed();
+
         delay(1000);
         _resume = true;
       }
@@ -567,7 +516,7 @@ void cal() {
     float known_mass = 0;
     _resume = false;
     while (_resume == false) {
-      //ESP.wdtFeed();
+
       scale.update();
       buttonTare.check();
       if (button_cal_status == 3) {
@@ -576,13 +525,13 @@ void cal() {
           Serial.print(F("Known mass is: "));
           Serial.println(known_mass);
           refreshOLED("Hands off", "Cal in 3");
-          //ESP.wdtFeed();
+
           delay(1000);
           refreshOLED("Hands off", "Cal in 2");
-          //ESP.wdtFeed();
+
           delay(1000);
           refreshOLED("Hands off", "Cal in 1");
-          //ESP.wdtFeed();
+
           delay(1000);
           refreshOLED("Calibrating...");
           _resume = true;
@@ -602,7 +551,7 @@ void cal() {
 #endif
     dtostrf(calibrationValue, 10, 2, calval);
     refreshOLED("Cal value", trim(calval));
-    //ESP.wdtFeed();
+
     delay(1000);
   }
   boolCalibration = false;
@@ -610,7 +559,7 @@ void cal() {
 
 
 void refreshOLED(char* input) {
-  //ESP.wdtFeed();
+
   u8g2.firstPage();
   u8g2.setFont(FONT_M);
   do {
@@ -621,7 +570,7 @@ void refreshOLED(char* input) {
 }
 
 void refreshOLED(char* input1, char* input2) {
-  //ESP.wdtFeed();
+
   u8g2.firstPage();
   u8g2.setFont(FONT_M);
   do {
@@ -633,7 +582,7 @@ void refreshOLED(char* input1, char* input2) {
 }
 
 void refreshOLED(char* input1, char* input2, char* input3) {
-  //ESP.wdtFeed();
+
   u8g2.firstPage();
   u8g2.setFont(FONT_S);
   do {
@@ -645,7 +594,7 @@ void refreshOLED(char* input1, char* input2, char* input3) {
   } while ( u8g2.nextPage() );
 }
 
-void initEspresso() {  
+void initEspresso() {
   t0 = 0;               //开始萃取打点
   t1 = 0;               //下液第一滴打点
   t2 = 0;               //下液结束打点
@@ -658,9 +607,7 @@ void initEspresso() {
 }
 
 void setup() {
-  //analogReference(INTERNAL);
-  //wdt_disable();
-  //ESP.wdtFeed();
+
   delay(50); //有些单片机会重启两次
 #if defined(ESP8266)
   WiFi.mode(WIFI_OFF);
@@ -673,6 +620,7 @@ void setup() {
 
   button_init();
   pinMode(BUZZER, OUTPUT);
+  beep(1, 100);
   u8g2.begin();
   u8g2.setFont(FONT_S);
   FONT_S_HEIGHT = u8g2.getMaxCharHeight();
@@ -704,7 +652,7 @@ void setup() {
 #if defined(ESP8266)|| defined(ESP32)
     EEPROM.begin(512);
 #endif
-    EEPROM.put(sizeof(float) + sizeof(int), sampleNumber);
+    EEPROM.put(address_PORTAFILTER_WEIGHT, sampleNumber);
 #if defined(ESP8266)|| defined(ESP32)
     EEPROM.commit();
 #endif
@@ -728,7 +676,7 @@ void setup() {
 #if defined(ESP8266)|| defined(ESP32)
   EEPROM.begin(512);
 #endif
-  EEPROM.get(sizeof(float), sampleNumber);
+  EEPROM.get(address_sampleNumber, sampleNumber);
   Serial.print(F("eepromSampleNumber: "));
   Serial.println(sampleNumber);
   if (isnan(sampleNumber)) {
@@ -751,7 +699,7 @@ void setup() {
   if (digitalRead(BUTTON_MINUS) == LOW) {
     boolShowInfo = true;
     showInfo();
-    //ESP.wdtFeed();
+
     delay(2000);
   }
 
@@ -764,10 +712,10 @@ void setup() {
 }
 
 void showInfo() {
-  char* scaleInfo[] = {/*版本号*/ "Version: 1.2", /*编译日期*/ "Build: 20210819", /*序列号*/ "S/N: xxxxxx"}; //序列号 003
+  char* scaleInfo[] = {/*版本号*/ "Version: 1.1", /*编译日期*/ "Build: 20210816", /*序列号*/ "S/N: ERSU003"}; //序列号 003
   refreshOLED(scaleInfo[0], scaleInfo[1], scaleInfo[2]);
   while (boolShowInfo) {
-    //ESP.wdtFeed();
+
     buttonSet.check();
     buttonPlus.check();
     buttonMinus.check();
@@ -870,8 +818,10 @@ void espressoScale() {
   }
 
   //记录咖啡粉时，将重量固定为0
-  if (scale.getTareStatus())
+  if (scale.getTareStatus()) {
+    beep(2, 50);
     fixWeightZero = false;
+  }
   if (fixWeightZero)
     rawWeight = 0.0;
 
@@ -900,8 +850,10 @@ void pureScale() {
   }
 
   //记录咖啡粉时，将重量固定为0
-  if (scale.getTareStatus())
+  if (scale.getTareStatus()) {
+    beep(2, 50);
     fixWeightZero = false;
+  }
   if (fixWeightZero)
     rawWeight = 0.0;
   if (boolPortaFilter == true)
@@ -915,12 +867,12 @@ void pureScale() {
     ratio_temp = 0.0;
   if (GRIND_COFFEE_WEIGHT < 0.1)
     ratio_temp = 0.0;
-  dtostrf(ratio_temp, 7, decimalPrecision, r);  
+  dtostrf(ratio_temp, 7, decimalPrecision, r);
 }
 
 void checkBattery() {
-  float batteryVoltage = analogRead(A0) * vRef;
-  float usbVoltage = analogRead(A1) * vRef;
+  float batteryVoltage = analogRead(BATTERY_LEVEL) * vRef;
+  float usbVoltage = analogRead(USB_LEVEL) * vRef;
   float perc = map(batteryVoltage, 3.6 * 1023, 4.1 * 1023, 0, 100);
   int i_icon = map(perc, 0, 100, 0, 5);
   switch (i_icon) {
@@ -956,7 +908,7 @@ void checkBattery() {
 }
 
 void loop() {
-  //ESP.wdtFeed();
+
   buttonSet.check();
   buttonPlus.check();
   buttonMinus.check();
@@ -982,7 +934,7 @@ void loop() {
     u8g2.firstPage();
     if (boolEspresso) {
       do {
-        //ESP.wdtFeed();
+
         if (displayRotation == 0) {
           u8g2.setFontDirection(0);
           u8g2.setDisplayRotation(U8G2_R0);
@@ -1029,7 +981,7 @@ void loop() {
 #ifdef DEBUG
           u8g2.setFontDirection(0);
           u8g2.setFont(FONT_S);
-          float batteryVoltage = analogRead(A0) * vRef / 1023;
+          float batteryVoltage = analogRead(BATTERY_LEVEL) * vRef / 1023;
           char c_votage[10];
           String(batteryVoltage).toCharArray(c_votage, 10);
           u8g2.drawStr(AR(c_votage), 64, trim(c_votage));
@@ -1042,7 +994,6 @@ void loop() {
     else {
       //纯称重
       do {
-        //ESP.wdtFeed();
         u8g2.setDisplayRotation(U8G2_R0);
         u8g2.setFont(FONT_L);
         FONT_L_HEIGHT = u8g2.getMaxCharHeight();
@@ -1071,7 +1022,7 @@ void loop() {
         u8g2.setFontDirection(0);
 #ifdef DEBUG
         u8g2.setFont(FONT_S);
-        float batteryVoltage = analogRead(A0) * vRef / 1023;
+        float batteryVoltage = analogRead(BATTERY_LEVEL) * vRef / 1023;
         char c_votage[10];
         String(batteryVoltage).toCharArray(c_votage, 10);
         u8g2.drawStr(AR(c_votage), 64, trim(c_votage));
