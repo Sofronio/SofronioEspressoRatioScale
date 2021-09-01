@@ -1,5 +1,6 @@
 # SofronioEspressoRatioScale
-Yet another ratio espresso scale
+Yet another ratio espresso scale<br />
+PourOver Ratio Scale: https://github.com/Sofronio/SofronioPourOverRatioScale<br />
 ## Version:
 ### v1.2
 * FIX Sample can't be changed.
