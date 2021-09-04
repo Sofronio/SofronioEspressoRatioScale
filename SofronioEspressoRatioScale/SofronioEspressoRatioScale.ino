@@ -5,6 +5,7 @@
   2021-08-07 v1.1 新增手柄录入功能
   2021-08-15 v1.1 去掉手柄录入（因为双头手柄含水量不一定），修复进入意式模式时未恢复参数，新增电量检测
   2021-09-01 v1.2 重新加入手柄录入 修复sample不可更改bug
+  2021-09-03 v1.3 修复切换到意式模式直接计时问题 修复录入可能产生负值问题
 */
 //#include "stdlib.h"
 #include <Arduino.h>
@@ -41,7 +42,7 @@ void(* resetFunc) (void) = 0;//重启函数
 
 //电子秤校准参数
 float calibrationValue;
-int sampleNumber = 3; //0-7
+int sampleNumber = 0; //0-7
 int sample[] = {1, 2, 4, 8, 16, 32, 64, 128};
 
 //HX711模数转换初始化
@@ -54,6 +55,7 @@ bool boolSetSample = false;
 bool boolShowInfo = false;
 bool boolSetPortaFilterWeight = false;
 bool boolPortaFilter = false;
+bool boolReadyToBrew = false; //准备冲煮并计时
 
 //EEPROM地址列表
 int address_calibrationValue = 0;
@@ -343,12 +345,16 @@ void buttonSet_Clicked() {
     if (rawWeight > 0) {
       if (rawWeight < 3)
         GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）
-      else
+      else if (boolPortaFilter) {
         GRIND_COFFEE_WEIGHT = rawWeight - PORTAFILTER_WEIGHT;
-      initEspresso();
-      boolPortaFilter = false;
-      stopWatch.stop();
+        boolPortaFilter = false;
+      }
+      else
+        GRIND_COFFEE_WEIGHT = rawWeight;
+      initEspresso();      
+      boolReadyToBrew = false;
       stopWatch.reset();
+      scale.tareNoDelay();
     }
     boolEspresso = true;
   }
@@ -403,7 +409,7 @@ void buttonTare_Clicked() {
 
 void setPortaFilterWeight(int input) {
   float portaFilterWeight = 0;
-  scale.setSamplesInUse(16);
+  scale.setSamplesInUse(4);
   while (boolSetPortaFilterWeight) {
     buttonTare.check();
     buttonSet.check();
@@ -597,7 +603,8 @@ void refreshOLED(char* input1, char* input2, char* input3) {
   } while ( u8g2.nextPage() );
 }
 
-void initEspresso() {
+void initEspresso() {    
+  stopWatch.reset();
   t0 = 0;               //开始萃取打点
   t1 = 0;               //下液第一滴打点
   t2 = 0;               //下液结束打点
@@ -748,30 +755,42 @@ void espressoScale() {
           scaleStable = true; //称已经稳定
           aWeight = rawWeight; //稳定重量aWeight
           if (millis() > autoTareMarker + autoTareInterval) {
-            if (t0 > 0 && tareCounter > 1) { //t0>0 已经开始萃取 tareCounter>3 忽略前期tare时不稳定
+            if (t0 > 0 && tareCounter > 1) {
+              //t0>0 已经开始萃取 tareCounter>3 忽略前期tare时不稳定
               if (t2 == 0) { //没有给t2计时过
                 t2 = millis(); //萃取完成打点
               }
               if (t2 - t1 < 5000) { //最终下液到稳定时间不到5秒 继续计时
                 t2 = 0;
               }
-              else { //最终下液到稳定时间大于5秒
+              else if (boolReadyToBrew) { 
+                //正常过程 最终下液到稳定时间大于5秒 
                 stopWatch.stop();
                 //萃取完成 单次固定液重
                 //Serial.println(F("萃取完成 单次固定液重"));
                 w1 = rawWeight;
+                beep(3, 50);
+                boolReadyToBrew = false;
               }
             }
-            if (stopWatch.elapsed() == 0) { //没有跑表 没有开始萃取
-              autoTareMarker = millis();
+            if (stopWatch.elapsed() == 0) {
+              //秒表没有运行
+              autoTareMarker = millis(); //自动清零计时打点
               if (rawWeight > 30 ) { //大于30g说明放了杯子 3g是纸杯
                 scale.tare();
                 beep(1, 100);
                 tareCounter = 0;
                 t2 = 0;
                 t1 = 0;
-                stopWatch.reset();
-                stopWatch.start();
+                if (boolReadyToBrew) {
+                  //已经准备冲煮状态 才开始计时
+                  stopWatch.reset();
+                  stopWatch.start();
+                }
+                else {
+                  //没有准备好冲煮 则第一次清零不计时 并进入准备冲煮状态
+                  boolReadyToBrew = true;
+                }
                 scaleStable = false;
                 t0 = millis();
                 //Serial.println(F("正归零 开始计时 取消稳定"));
@@ -779,7 +798,8 @@ void espressoScale() {
               //时钟为零，负重量稳定后归零，时钟不变
               if (rawWeight < -0.5) { //负重量状态
                 scale.tare();
-                //Serial.println(F("负归零"));
+                //负归零后 进入准备冲煮状态 【下次】放了杯子后 清零并计时
+                boolReadyToBrew = true;
               }
             }
             atWeight = rawWeight;
@@ -823,6 +843,7 @@ void espressoScale() {
   //记录咖啡粉时，将重量固定为0
   if (scale.getTareStatus()) {
     beep(2, 50);
+    boolReadyToBrew = true;
     fixWeightZero = false;
   }
   if (fixWeightZero)
