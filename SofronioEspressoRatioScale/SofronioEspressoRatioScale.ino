@@ -6,6 +6,7 @@
   2021-08-15 v1.1 去掉手柄录入（因为双头手柄含水量不一定），修复进入意式模式时未恢复参数，新增电量检测
   2021-09-01 v1.2 重新加入手柄录入 修复sample不可更改bug
   2021-09-03 v1.3 修复切换到意式模式直接计时问题 修复录入可能产生负值问题
+  2021-10-02 v1.4 修复切换到意式模式 下液计时不清零问题
 */
 //#include "stdlib.h"
 #include <Arduino.h>
@@ -294,7 +295,7 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
         case BUTTON_SET:
           beep(1, 100);
           if (boolEspresso == true) //意式模式下 长按回归普通模式
-            boolEspresso = !boolEspresso;
+            boolEspresso = false;
           break;
         case BUTTON_PLUS:
           beep(1, 100);
@@ -342,20 +343,22 @@ void buttonSet_Clicked() {
   }
   else {
     //普通录入 切换到意式模式
-    if (rawWeight > 0) {
-      if (rawWeight < 3)
-        GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）
-      else if (boolPortaFilter) {
-        GRIND_COFFEE_WEIGHT = rawWeight - PORTAFILTER_WEIGHT;
-        boolPortaFilter = false;
-      }
-      else
-        GRIND_COFFEE_WEIGHT = rawWeight;
-      initEspresso();      
-      boolReadyToBrew = false;
-      stopWatch.reset();
-      scale.tareNoDelay();
+    if (boolPortaFilter) {
+      //去掉手柄重量模式
+      GRIND_COFFEE_WEIGHT = rawWeight - PORTAFILTER_WEIGHT;
+      boolPortaFilter = false;
+      if (GRIND_COFFEE_WEIGHT < 3)
+        GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）配合手柄模式使用
     }
+    if (rawWeight < 3)
+      GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）    
+    else
+      GRIND_COFFEE_WEIGHT = rawWeight;    
+    initEspresso();      
+    boolReadyToBrew = false;
+    stopWatch.stop();
+    stopWatch.reset();
+    scale.tareNoDelay();  
     boolEspresso = true;
   }
 }
@@ -637,8 +640,9 @@ void setup() {
   u8g2.setFont(FONT_M);
   u8g2.setContrast(255);
   FONT_M_HEIGHT = u8g2.getMaxCharHeight();
-  char* welcome = "soso E.R.S"; //欢迎文字
-  refreshOLED(welcome);
+  //char* welcome = "soso E.R.S"; //欢迎文字
+  //refreshOLED(welcome);
+  refreshOLED("Sofronio's", "Espresso", "Ratio Scale");
   stopWatch.setResolution(StopWatch::SECONDS);
   stopWatch.start();
   stopWatch.reset();
@@ -722,7 +726,7 @@ void setup() {
 }
 
 void showInfo() {
-  char* scaleInfo[] = {/*版本号*/ "Version: 1.1", /*编译日期*/ "Build: 20210816", /*序列号*/ "S/N: ERSU003"}; //序列号 003
+  char* scaleInfo[] = {/*版本号*/ "Version: 1.4", /*编译日期*/ "Build: 20211002", /*序列号*/ "S/N: xxxxxxxx"}; //序列号
   refreshOLED(scaleInfo[0], scaleInfo[1], scaleInfo[2]);
   while (boolShowInfo) {
 
@@ -755,7 +759,7 @@ void espressoScale() {
           scaleStable = true; //称已经稳定
           aWeight = rawWeight; //稳定重量aWeight
           if (millis() > autoTareMarker + autoTareInterval) {
-            if (t0 > 0 && tareCounter > 1) {
+            if (t0 > 0 && tareCounter > 3) {
               //t0>0 已经开始萃取 tareCounter>3 忽略前期tare时不稳定
               if (t2 == 0) { //没有给t2计时过
                 t2 = millis(); //萃取完成打点
@@ -809,7 +813,7 @@ void espressoScale() {
           scaleStable = false;
           if (t0 > 0) {
             //过滤tare环节的不稳
-            if (tareCounter <= 1)
+            if (tareCounter <= 3)
               tareCounter ++; ///tare后 遇到前2次不稳 视为稳定
             else {
               //tareCounter > 3 //视为开始萃取
