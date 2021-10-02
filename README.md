@@ -2,6 +2,8 @@
 Yet another ratio espresso scale<br />
 PourOver Ratio Scale: https://github.com/Sofronio/SofronioPourOverRatioScale<br />
 ## Version:
+### v1.4
+* FIX During mode chaning, timer doesn't clear to zero.
 ### v1.3
 * FIX In espresso mode, timer will auto start.
 ### v1.2
