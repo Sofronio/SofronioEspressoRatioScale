@@ -2,6 +2,9 @@
 Yet another ratio espresso scale<br />
 PourOver Ratio Scale: https://github.com/Sofronio/SofronioPourOverRatioScale<br />
 ## Version:
+### v1.5
+* ADD Long press "咖啡录入" to rotate display.
+* FIX During minus porta filter weight mode, timer doesn't function.
 ### v1.4
 * FIX During mode chaning, timer doesn't clear to zero.
 ### v1.3
