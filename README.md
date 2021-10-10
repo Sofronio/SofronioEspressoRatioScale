@@ -1,5 +1,6 @@
 # SofronioEspressoRatioScale
 Yet another ratio espresso scale<br />
+Chinese Manual: https://github.com/Sofronio/SofronioEspressoRatioScale/blob/main/Manual.md<br />
 PourOver Ratio Scale: https://github.com/Sofronio/SofronioPourOverRatioScale<br />
 ## Version:
 ### v1.5
