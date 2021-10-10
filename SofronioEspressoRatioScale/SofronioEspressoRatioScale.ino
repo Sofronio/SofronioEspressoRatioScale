@@ -7,6 +7,7 @@
   2021-09-01 v1.2 重新加入手柄录入 修复sample不可更改bug
   2021-09-03 v1.3 修复切换到意式模式直接计时问题 修复录入可能产生负值问题
   2021-10-02 v1.4 修复切换到意式模式 下液计时不清零问题
+  2021-10-10 v1.5 修复手柄录入产生的计时问题 新增显示旋转功能
 */
 //#include "stdlib.h"
 #include <Arduino.h>
@@ -159,7 +160,8 @@ AceButton buttonTare(&config1);
 //设置字体 https://github.com/olikraus/u8g2/wiki/fntlistall
 #define FONT_L u8g2_font_logisoso24_tn
 #define FONT_M u8g2_font_fub14_tr
-#define FONT_S u8g2_font_helvR12_tr
+//#define FONT_S u8g2_font_helvR12_tr
+#define FONT_S FONT_M
 #define FONT_BATTERY u8g2_font_battery19_tn
 char* c_battery = "0";//电池字符 0-5有显示
 char* c_batteryTemp = "0";
@@ -304,6 +306,12 @@ void handleEvent1(AceButton* button, uint8_t eventType, uint8_t buttonState) {
           beep(1, 100);
           if (boolCalibration)
             resetFunc();
+          else {
+            if (displayRotation == 0)
+              displayRotation = 1;
+            else
+              displayRotation = 0;
+          }
           break;
       }
       break;
@@ -346,19 +354,21 @@ void buttonSet_Clicked() {
     if (boolPortaFilter) {
       //去掉手柄重量模式
       GRIND_COFFEE_WEIGHT = rawWeight - PORTAFILTER_WEIGHT;
-      boolPortaFilter = false;
+      //boolPortaFilter = false;
       if (GRIND_COFFEE_WEIGHT < 3)
         GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）配合手柄模式使用
     }
-    if (rawWeight < 3)
-      GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）    
-    else
-      GRIND_COFFEE_WEIGHT = rawWeight;    
-    initEspresso();      
+    else {
+      if (rawWeight < 3)
+        GRIND_COFFEE_WEIGHT = defaultPowderWeight; //不足3g 录入为默认值（20g）
+      else
+        GRIND_COFFEE_WEIGHT = rawWeight;
+    }
+    initEspresso();
     boolReadyToBrew = false;
     stopWatch.stop();
     stopWatch.reset();
-    scale.tareNoDelay();  
+    scale.tareNoDelay();
     boolEspresso = true;
   }
 }
@@ -606,7 +616,7 @@ void refreshOLED(char* input1, char* input2, char* input3) {
   } while ( u8g2.nextPage() );
 }
 
-void initEspresso() {    
+void initEspresso() {
   stopWatch.reset();
   t0 = 0;               //开始萃取打点
   t1 = 0;               //下液第一滴打点
@@ -642,7 +652,7 @@ void setup() {
   FONT_M_HEIGHT = u8g2.getMaxCharHeight();
   //char* welcome = "soso E.R.S"; //欢迎文字
   //refreshOLED(welcome);
-  refreshOLED("Sofronio's", "Espresso", "Ratio Scale");
+  refreshOLED("soso E.R.S");
   stopWatch.setResolution(StopWatch::SECONDS);
   stopWatch.start();
   stopWatch.reset();
@@ -726,7 +736,7 @@ void setup() {
 }
 
 void showInfo() {
-  char* scaleInfo[] = {/*版本号*/ "Version: 1.4", /*编译日期*/ "Build: 20211002", /*序列号*/ "S/N: xxxxxxxx"}; //序列号
+  char* scaleInfo[] = {/*版本号*/ "Version: 1.5", /*编译日期*/ "BD: 20211010", /*序列号*/ "SN: xxxxxxx"}; //序列号 007
   refreshOLED(scaleInfo[0], scaleInfo[1], scaleInfo[2]);
   while (boolShowInfo) {
 
@@ -767,8 +777,8 @@ void espressoScale() {
               if (t2 - t1 < 5000) { //最终下液到稳定时间不到5秒 继续计时
                 t2 = 0;
               }
-              else if (boolReadyToBrew) { 
-                //正常过程 最终下液到稳定时间大于5秒 
+              else if (boolReadyToBrew) {
+                //正常过程 最终下液到稳定时间大于5秒
                 stopWatch.stop();
                 //萃取完成 单次固定液重
                 //Serial.println(F("萃取完成 单次固定液重"));
@@ -780,7 +790,8 @@ void espressoScale() {
             if (stopWatch.elapsed() == 0) {
               //秒表没有运行
               autoTareMarker = millis(); //自动清零计时打点
-              if (rawWeight > 30 ) { //大于30g说明放了杯子 3g是纸杯
+              if (rawWeight > 30 && boolPortaFilter == false) { //大于30g说明放了杯子 3g是纸杯
+                //后面的判断避免手柄模式超过30g对放杯感应产生干扰
                 scale.tare();
                 beep(1, 100);
                 tareCounter = 0;
@@ -846,6 +857,7 @@ void espressoScale() {
 
   //记录咖啡粉时，将重量固定为0
   if (scale.getTareStatus()) {
+    boolPortaFilter = false;
     beep(2, 50);
     boolReadyToBrew = true;
     fixWeightZero = false;
@@ -1016,6 +1028,59 @@ void loop() {
           Serial.print("v");
           Serial.println(c_votage);
 #endif
+        }
+        if (displayRotation == 1) {
+          u8g2.setDisplayRotation(U8G2_R1);
+          //00 battery
+          u8g2.setFontDirection(1);
+          u8g2.setFont(FONT_BATTERY);
+          if (c_battery == "c") {
+            if (i_battery == 6)
+              i_battery = 0;
+            if (millis() > t_battery + 500) {
+              i_battery++;
+              t_battery = millis();
+            }
+            String(i_battery).toCharArray(c_battery, 2);
+            u8g2.drawStr(64 - 20, 6, c_battery);
+          }
+          else {
+            if (millis() > t_batteryRefresh + batteryRefreshTareInterval) {
+              c_batteryTemp = c_battery;
+              t_batteryRefresh = millis();
+            }
+            u8g2.drawStr(64 - 20, 6, c_batteryTemp);
+          }
+
+          u8g2.setFontDirection(0);
+          u8g2.setFont(FONT_M);
+          x = Margin_Left;
+          y = FONT_M_HEIGHT + Margin_Top - 5 + 1;
+          //00 ESP
+          u8g2.drawStr(0, y, "ESP");
+
+          //01 粉重
+          y = y + FONT_M_HEIGHT + 6;
+          u8g2.drawStr(x, y, trim(coffeepowder));
+          //02 重量
+          y = y + FONT_M_HEIGHT + 6;
+          u8g2.drawStr(0, y, trim(wu));
+          //03 时间
+          y = y + FONT_M_HEIGHT + 6;
+          u8g2.drawStr(0, y, sec2sec(stopWatch.elapsed()));
+          if (t1 > 0 && t1 - t0 > 0) { //有下液了
+            int t1_num = (t1 - t0) / 1000;
+            u8g2.drawStr(AR(sec2sec(t1_num)), y, sec2sec(t1_num));
+          }
+          //04 粉水比
+          y = y + FONT_M_HEIGHT;
+
+          //u8g2.setFont(FONT_M);
+          x = Margin_Left;
+          y = LCDHeight - Margin_Bottom;
+
+          u8g2.drawStr(0, y, trim(ratio));
+
         }
       } while ( u8g2.nextPage() );
     }
